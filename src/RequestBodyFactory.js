@@ -1,58 +1,62 @@
-import { VerifiableMessage } from './VerifiableMessage'
+import { PaymailClient, Verifi } from '@moneybutton/paymail-client'
+import fetch from 'isomorphic-fetch'
+import dns from 'dns'
+import bsv from 'bsv'
 
-class RequestBodyFactory {
-  constructor (clock) {
-    this.clock = clock
+const client = new PaymailClient(dns, fetch) // Any implementation of fetch can be used.
+const somePaymailAddress = 'some_name@moneybutton.com'
+client.getPublicKey(somePaymailAddress).then(pubkey => {
+  console.log(`Current public key for ${somePaymailAddress} is ${pubkey}`)
+})
+
+// You can look for someones public identity key.
+const senderPrivateKey = 'b082d4516758f7779dcfb1050c8fd55b'
+client.getOutputFor(somePaymailAddress, {
+    senderHandle: '39708@moneybutton.com',
+    amount: 10000000, // Amount in satoshis
+    senderName: 'Daud',
+    purpose: 'Pay for your services.',
+    pubkey: '2f63ebf3a3b18c988ca8f7da4ddee7ac'
+}, senderPrivateKey).then( output => {
+  console.log(`Now I can send money to ${somePaymailAddress} using this output: ${output}`)
+})
+
+// You can also use a previously created signature instead of passing in the private key.
+import { VerifiableMessage } from '@moneybutton/paymail-client'
+
+const timestamp = new Date().toISOString()
+const preMadeSignature = VerifiableMessage.forBasicAddressResolution({
+  senderHandle: '39708@moneybutton.com',
+  amount: 10000000,
+  dt: timestamp,
+  purpose: 'Pay for your services.'
+}).sign('senderPrivateKey')
+
+client.getOutputFor(somePaymailAddress, {
+  senderHandle: '39708@moneybutton.com',
+  amount: 10000000, // Amount in satoshis
+  senderName: 'Daud',
+  purpose: 'Pay for your services.',
+  pubkey: '2f63ebf3a3b18c988ca8f7da4ddee7ac',
+  signature: preMadeSignature
+}).then( output => {
+  console.log(`Now I can send money to ${somePaymailAddress} using this output: ${output}`)
+})
+
+// You can check if a given key belongs to a given paymail
+const somePubKey = bsv.PrivateKey.fromRandom().publicKey.toString()
+client.verifyPubkeyOwner(somePubKey, 'someuser@moneybutton.com').then(aBoolean => {
+  console.log(`The key ${somePubKey} ${aBoleean ? 'does' : 'doesn\'t'} belongs to someuser@moneybutton.com`)
+})
+
+
+// Lastly it lets you verify if certain signature is valid for certain paymail address.
+const aMessage = new VerifiableMessage(['very', 'important', 'message'])
+const aSignature = 'some signature for the message'
+client.isValidSignature (aMessage, aSignature, 'someone@moneybutton.com').then( aBoolean => {
+  if (aBoolean) {
+    console.log('the signature is valid, yey!')
+  } else {
+    console.log('the signature is invalid, don\'t trust them')
   }
-  buildBodyToRequestAddress (senderInfo, privateKey = null) {
-    const {
-      senderHandle,
-      amount,
-      senderName,
-      purpose,
-      pubkey,
-      signature: providedSignature
-    } = senderInfo
-
-    if (!providedSignature && privateKey === null) {
-      throw new Error('Missing private key or signature')
-    }
-
-    let dt, signature
-    if (providedSignature) {
-      if (!senderInfo.dt) {
-        throw new Error('missing datetime for given signature')
-      }
-      dt = senderInfo.dt
-      signature = providedSignature
-    } else {
-      dt = this.clock.now()
-      signature = VerifiableMessage.forBasicAddressResolution({
-        senderHandle,
-        amount,
-        dt,
-        purpose
-      }).sign(privateKey)
-    }
-
-    return {
-      senderHandle,
-      senderName,
-      purpose,
-      dt,
-      amount: amount || null,
-      pubkey,
-      signature
-    }
-  }
-
-  buildBodySendTx (hexTransaction, reference, metadata) {
-    return { hex: hexTransaction, metadata, reference }
-  }
-
-  buildBodyP2pPaymentDestination (satoshis) {
-    return { satoshis }
-  }
-}
-
-export { RequestBodyFactory }
+})
